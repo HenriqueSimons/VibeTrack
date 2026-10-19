@@ -173,6 +173,22 @@ with col2:
         help="Andamento musical em batidas por minuto."
     )
 
+# Explicações disponíveis sem alterar os controles da interface.
+with st.expander("ℹ️ Como preencher os campos?"):
+    st.markdown("""
+    Ajuste os controles de acordo com o tipo de música que você procura.
+    Os cinco primeiros campos usam valores de **0 a 1**:
+
+    - **Dançabilidade:** 0 indica pouca adequação para dança; 1 indica muita adequação.
+    - **Energia:** 0 representa menor intensidade percebida; 1, maior intensidade.
+    - **Positividade musical:** valores baixos sugerem uma sonoridade mais negativa ou melancólica; valores altos, uma sonoridade mais positiva.
+    - **Característica acústica:** valores altos indicam maior confiança de que a gravação é acústica.
+    - **Instrumentalidade:** valores altos indicam maior probabilidade de a faixa não conter vocais.
+    - **Ritmo (BPM):** andamento estimado em **batidas por minuto**. Nesta aplicação, o controle vai de **0 a 244 BPM**.
+
+    Os controles já restringem os valores permitidos e sempre fornecem os seis campos necessários.
+    """)
+
 st.divider()
 
 # ==========================================
@@ -196,6 +212,33 @@ if st.button(
 
     # Garantir a mesma ordem usada no treinamento
     entrada = entrada[caracteristicas]
+
+    # Validação explícita antes da inferência, mesmo com os limites dos sliders.
+    limites = {
+        "danceability": (0.0, 1.0),
+        "energy": (0.0, 1.0),
+        "valence": (0.0, 1.0),
+        "acousticness": (0.0, 1.0),
+        "instrumentalness": (0.0, 1.0),
+        "tempo": (0.0, 244.0),
+    }
+
+    if entrada.isna().any().any():
+        st.error("Preencha todas as características musicais antes de continuar.")
+        st.stop()
+
+    if not np.isfinite(entrada.to_numpy(dtype=float)).all():
+        st.error("Os campos devem conter apenas números válidos.")
+        st.stop()
+
+    for campo, (minimo, maximo) in limites.items():
+        valor = float(entrada.iloc[0][campo])
+        if not minimo <= valor <= maximo:
+            st.error(
+                f"Valor inválido para {nomes_caracteristicas[campo]}: "
+                f"informe um valor entre {minimo:g} e {maximo:g}."
+            )
+            st.stop()
 
     # Aplicar a padronização do treinamento
     entrada_escalada = scaler.transform(entrada)
@@ -396,6 +439,19 @@ if st.button(
         "Isso não significa que as músicas sejam opostas "
         "em todas as características."
     )
+
+# ==========================================
+# LIMITAÇÕES DA SOLUÇÃO
+# ==========================================
+
+with st.expander("ℹ️ Limitações do VibeTrack"):
+    st.markdown("""
+    - O VibeTrack identifica **semelhanças entre características musicais** usando agrupamento K-means. As identidades sonoras são nomes interpretativos dos grupos, não classificações definitivas de gênero musical ou personalidade.
+    - As sugestões dependem das faixas presentes no conjunto de dados utilizado. O aplicativo não consulta um catálogo musical em tempo real.
+    - O sistema não considera histórico de reprodução, avaliações pessoais nem preferências anteriores do visitante.
+    - A qualidade dos resultados depende dos dados e das seis características analisadas. Músicas parecidas nesses atributos podem soar diferentes para uma pessoa.
+    - O perfil alternativo representa um grupo matematicamente distante, não necessariamente o oposto em todos os aspectos musicais.
+    """)
 
 # ==========================================
 # RODAPÉ
