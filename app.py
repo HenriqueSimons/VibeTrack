@@ -113,65 +113,44 @@ st.divider()
 
 st.header("Configure suas preferências musicais")
 
+modo_entrada = st.radio(
+    "Como deseja informar suas preferências?",
+    ["Controles deslizantes", "Entrada manual"],
+    horizontal=True,
+    key="modo_entrada",
+)
+
+campos_entrada = {
+    "danceability": ("Dançabilidade", 0.60, "Indica o quanto uma música é adequada para dançar."),
+    "energy": ("Energia", 0.70, "Representa a intensidade percebida da música."),
+    "valence": ("Positividade musical", 0.60, "Indica uma sonoridade mais positiva ou negativa."),
+    "acousticness": ("Característica acústica", 0.30, "Indica o grau de característica acústica."),
+    "instrumentalness": ("Instrumentalidade", 0.10, "Indica a probabilidade de ausência de vocais."),
+    "tempo": ("Ritmo (BPM)", 120.0, "Andamento musical em batidas por minuto."),
+}
+
+valores_informados = {}
 col1, col2 = st.columns(2)
 
-with col1:
-
-    danceability = st.slider(
-        "Dançabilidade",
-        min_value=0.0,
-        max_value=1.0,
-        value=0.6,
-        step=0.01,
-        help="Indica o quanto uma música é adequada para dançar."
-    )
-
-    energy = st.slider(
-        "Energia",
-        min_value=0.0,
-        max_value=1.0,
-        value=0.7,
-        step=0.01,
-        help="Representa a intensidade percebida da música."
-    )
-
-    valence = st.slider(
-        "Positividade musical",
-        min_value=0.0,
-        max_value=1.0,
-        value=0.6,
-        step=0.01,
-        help="Indica uma sonoridade mais positiva ou negativa."
-    )
-
-with col2:
-
-    acousticness = st.slider(
-        "Característica acústica",
-        min_value=0.0,
-        max_value=1.0,
-        value=0.3,
-        step=0.01,
-        help="Indica o grau de característica acústica."
-    )
-
-    instrumentalness = st.slider(
-        "Instrumentalidade",
-        min_value=0.0,
-        max_value=1.0,
-        value=0.1,
-        step=0.01,
-        help="Indica a presença de conteúdo instrumental."
-    )
-
-    tempo = st.slider(
-        "Ritmo (BPM)",
-        min_value=0.0,
-        max_value=244.0,
-        value=120.0,
-        step=1.0,
-        help="Andamento musical em batidas por minuto."
-    )
+for indice, (chave, (rotulo, padrao, ajuda)) in enumerate(campos_entrada.items()):
+    with (col1 if indice < 3 else col2):
+        if modo_entrada == "Controles deslizantes":
+            valores_informados[chave] = st.slider(
+                rotulo,
+                min_value=0.0,
+                max_value=244.0 if chave == "tempo" else 1.0,
+                value=padrao,
+                step=1.0 if chave == "tempo" else 0.01,
+                help=ajuda,
+                key=f"slider_{chave}",
+            )
+        else:
+            valores_informados[chave] = st.text_input(
+                rotulo,
+                value=f"{padrao:.0f}" if chave == "tempo" else f"{padrao:.2f}",
+                help=ajuda,
+                key=f"manual_{chave}",
+            )
 
 # Explicações disponíveis sem alterar os controles da interface.
 with st.expander("ℹ️ Como preencher os campos?"):
@@ -186,7 +165,9 @@ with st.expander("ℹ️ Como preencher os campos?"):
     - **Instrumentalidade:** valores altos indicam maior probabilidade de a faixa não conter vocais.
     - **Ritmo (BPM):** andamento estimado em **batidas por minuto**. Nesta aplicação, o controle vai de **0 a 244 BPM**.
 
-    Os controles já restringem os valores permitidos e sempre fornecem os seis campos necessários.
+    No modo **Controles deslizantes**, os limites são aplicados automaticamente.
+    No modo **Entrada manual**, valores vazios, não numéricos ou fora dos limites são
+    identificados antes da inferência. Você pode usar vírgula ou ponto decimal.
     """)
 
 st.divider()
@@ -200,45 +181,45 @@ if st.button(
     type="primary"
 ):
 
-    # Organizar os dados informados
-    entrada = pd.DataFrame([{
-        "danceability": danceability,
-        "energy": energy,
-        "valence": valence,
-        "acousticness": acousticness,
-        "instrumentalness": instrumentalness,
-        "tempo": tempo
-    }])
+    # Validar as duas modalidades antes de enviar dados ao modelo.
+    limites = {chave: (0.0, 244.0 if chave == "tempo" else 1.0)
+               for chave in campos_entrada}
+    entrada_validada = {}
+    erros = []
 
-    # Garantir a mesma ordem usada no treinamento
-    entrada = entrada[caracteristicas]
+    for chave, (rotulo, _, _) in campos_entrada.items():
+        valor_bruto = valores_informados[chave]
+        texto = str(valor_bruto).strip()
 
-    # Validação explícita antes da inferência, mesmo com os limites dos sliders.
-    limites = {
-        "danceability": (0.0, 1.0),
-        "energy": (0.0, 1.0),
-        "valence": (0.0, 1.0),
-        "acousticness": (0.0, 1.0),
-        "instrumentalness": (0.0, 1.0),
-        "tempo": (0.0, 244.0),
-    }
+        if not texto:
+            erros.append(f"O campo '{rotulo}' é obrigatório.")
+            continue
 
-    if entrada.isna().any().any():
-        st.error("Preencha todas as características musicais antes de continuar.")
-        st.stop()
+        try:
+            valor = float(texto.replace(",", "."))
+        except ValueError:
+            erros.append(f"O campo '{rotulo}' deve conter um número válido.")
+            continue
 
-    if not np.isfinite(entrada.to_numpy(dtype=float)).all():
-        st.error("Os campos devem conter apenas números válidos.")
-        st.stop()
+        if not np.isfinite(valor):
+            erros.append(f"O campo '{rotulo}' deve conter um número finito.")
+            continue
 
-    for campo, (minimo, maximo) in limites.items():
-        valor = float(entrada.iloc[0][campo])
+        minimo, maximo = limites[chave]
         if not minimo <= valor <= maximo:
-            st.error(
-                f"Valor inválido para {nomes_caracteristicas[campo]}: "
-                f"informe um valor entre {minimo:g} e {maximo:g}."
-            )
-            st.stop()
+            erros.append(f"O campo '{rotulo}' deve estar entre {minimo:g} e {maximo:g}.")
+            continue
+
+        entrada_validada[chave] = valor
+
+    if erros:
+        st.error("Foram encontrados problemas na entrada:")
+        for erro in erros:
+            st.write(f"• {erro}")
+        st.stop()
+
+    # Manter exatamente a ordem de características usada no treinamento.
+    entrada = pd.DataFrame([entrada_validada])[caracteristicas]
 
     # Aplicar a padronização do treinamento
     entrada_escalada = scaler.transform(entrada)
